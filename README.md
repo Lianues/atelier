@@ -389,7 +389,7 @@ IndexedDB 打不开（隐私模式、浏览器禁用、测试环境）时，插�
 
 ## 五、工具（函数调用）
 
-三个工具，路径都是工作区内的绝对路径，和真实磁盘无关：
+四个工具，路径都是工作区内的绝对路径，和真实磁盘无关：
 
 ### `read`
 
@@ -427,7 +427,53 @@ IndexedDB 打不开（隐私模式、浏览器禁用、测试环境）时，插�
 - 多个 hunk 时，报错会带序号（`第 2 个 hunk：…`），方便模型只重试出错那段；
 - 替换结果写回后立刻落盘。
 
-> 工具名 `read` / `write` / `edit` 是全局的（ToolManager 只有一个注册表）。
+### `grep`
+
+```json
+{ "args": "^order: -g \"*.yaml\" /world_book/莉可丽丝" }
+```
+
+跨文件正则搜索，底层和 `at.grep` 是同一份实现（`lib/grep.js`）。
+
+**只有一个参数 `args`**，就是一行 rg 命令（去掉 `rg` 本身）：
+
+```
+PATTERN [PATH] [-i] [-F] [-g GLOB] [-C N] [-l] [-c] [-m N]
+```
+
+```
+千束 -i -g "*.md" -C 1 /world_book
+^order: -g "*.yaml"
+旧标题 -l
+TODO -c
+-- -开头的内容
+```
+
+| 开关 | 含义 |
+|---|---|
+| `-i` | 忽略大小写 |
+| `-F` | 字面量，不解析正则 |
+| `-g GLOB` | 文件过滤（`*.yaml` 匹配文件名，`**/entries/*.md` 匹配路径） |
+| `-C N` | 命中行前后各带 N 行 |
+| `-l` | 只列有命中的文件（rg -l） |
+| `-c` | 每文件计数（rg -c） |
+| `-m N` | 命中上限（默认 200，插件自己的保险） |
+| `--` | 后面全是位置参数，用来搜以 `-` 开头的模式 |
+
+返回 ripgrep 风格文本，一行一条：
+
+```
+/world_book/莉可丽丝/entries/0_千束.md:3:7: 千束站在门口。
+/world_book/莉可丽丝/entries/0_千束.yaml:2:1: order: 17
+
+—— 2 条命中 · 扫描 8 个文件 · 1ms
+```
+
+超过上限会带 `已截断到 N 条`，超时（默认 2s）会带 `超时，结果不完整`；没有命中则返回 `没有匹配（扫描 N 个文件…）`。
+
+pattern 里有空格要加引号（`"两个词" -g "*.md"`），否则后半截会被当成路径 —— 这种误用会额外提示。
+
+> 工具名 `read` / `write` / `edit` / `grep` 是全局的（ToolManager 只有一个注册表）。
 > 如果你还装了别的扩展用了同名工具，后注册的会覆盖先注册的 —— 改 `lib/tools.js` 顶部的常量即可换名。
 
 ### `js`
@@ -462,9 +508,9 @@ return st.characters[st.characterId]?.name;
 at.write('/备注/世界书.txt', st.getWorldInfoNames().join('\n'));
 ```
 
-#### `at`：一整套最小文件 IO（6 个原语）
+#### `at`：最小文件 IO + 一个 grep
 
-给的是 **JS 拿不到的东西**（页面里没有 `fs`），不是一套查询 DSL：
+给的是 **JS 拿不到的东西**（页面里没有 `fs`），外加一个手写太啰嗦的搜索原语：
 
 | API | 为什么必须给 |
 |---|---|
@@ -474,16 +520,44 @@ at.write('/备注/世界书.txt', st.getWorldInfoNames().join('\n'));
 | `at.move(from, to)` | 没有 `rename` / `mv`；目录连子树一起搬，目标已存在会报错 |
 | `at.remove(path)` | 没有 `unlink` / `rm -r`；直接删，不做回收站 |
 | `at.parseYaml(text)` | 浏览器没有内置 YAML 解析器 |
+| `at.grep(pattern, opts?)` | 跨文件正则搜索，带行号/列号/上下文；自己用 JS 写会慢一个量级 |
 
-这 6 个就是**最底层**：读、写、列、搬、删、解析。上层全部交给 JS 组合——
+**`at.grep`**（对齐 ripgrep 的常用选项）：
 
 ```js
-// grep：跨文件正则
-const hits = at.files('/world_book').flatMap(path =>
-    at.read(path).split('\n')
-        .map((text, i) => ({ path, line: i + 1, text }))
-        .filter(hit => /千束/.test(hit.text)));
+// 在某个世界书里搜，忽略大小写，带上下文
+at.grep('千束', { path: '/world_book/莉可丽丝', context: 1 });
 
+// 只看 yaml，锚定行首
+at.grep('^order:', { glob: '*.yaml' });
+
+// 只要文件列表 / 每文件计数
+at.grep('旧标题', { mode: 'files' });
+at.grep('TODO', { mode: 'count' });
+
+// 字面量（不解析正则）
+at.grep('a.b', { fixed: true });
+```
+
+返回：
+
+```js
+{
+  matches: [{ path: '/world_book/x/entries/0_a.md', line: 3, column: 7, text: '…命中行…', before: [], after: [] }],
+  total: 12,
+  truncated: false,   // 超过 maxResults
+  timedOut: false,    // 超过 timeoutMs（默认 2000）
+  scanned: 8,         // 扫了多少个文件
+  durationMs: 3,
+}
+```
+
+选项：`path` / `glob`（`*`、`**`、`?`）/ `ignoreCase` / `fixed` /
+`context`（前后行数）/ `mode`（`matches` / `files` / `count`）/ `maxResults`（默认 200）/ `timeoutMs`（默认 2000）。
+
+这 7 个就是**最底层**：读、写、列、搬、删、解析、搜。上层全部交给 JS 组合——
+
+```js
 // entries：把 yaml 和同名 md 配对（也是"联合搜索"的基础）
 const entries = at.files('/world_book')
     .filter(f => f.includes('/entries/') && f.endsWith('.yaml'))
@@ -721,7 +795,7 @@ other:                   # 其余酒馆原生字段，原样保留
 
 ## 十、给后续「前端 JS 执行工具」留的口子
 
-除了 ToolManager 的三个工具，插件还把工作区挂到了 `globalThis.Atelier`：
+除了 ToolManager 的四个工具，插件还把工作区挂到了 `globalThis.Atelier`：
 
 ```js
 await Atelier.ready();

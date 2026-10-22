@@ -336,7 +336,8 @@ test('工具注册：发给模型的 parameters 不含 Gemini 不认的字段', 
 
     registerWorkspaceTools(context, workspace);
 
-    const forbidden = ['additionalProperties', '$schema', 'minLength', 'maxLength', 'pattern', 'exclusiveMinimum', 'oneOf', 'anyOf', 'allOf'];
+    // 只扫「绝不可能是参数名」的那几个关键字；`pattern` 本身是 grep 的参数名，不能算
+    const forbidden = ['additionalProperties', '$schema', 'minLength', 'maxLength', 'exclusiveMinimum', 'oneOf', 'anyOf', 'allOf'];
     const schemas = [...registered.map(item => item.parameters), JS_PARAMETERS];
 
     for (const schema of schemas) {
@@ -346,5 +347,5 @@ test('工具注册：发给模型的 parameters 不含 Gemini 不认的字段', 
         }
     }
 
-    assert.equal(registered.length, 3);
+    assert.equal(registered.length, 4);
 });

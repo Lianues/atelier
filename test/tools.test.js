@@ -15,8 +15,8 @@ function makeContext(overrides = {}) {
     };
 }
 
-test('工具名固定为 read / write / edit', () => {
-    assert.deepEqual(TOOL_NAMES, ['read', 'write', 'edit']);
+test('工具名固定为 read / write / edit / grep', () => {
+    assert.deepEqual(TOOL_NAMES, ['read', 'write', 'edit', 'grep']);
 });
 
 test('describeToolCalling：已启用', () => {

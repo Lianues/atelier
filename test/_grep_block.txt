@@ -1,0 +1,233 @@
+        grep: (pattern, options = {}) => grepWorkspace(fs(), pattern, options),
+    };
+}
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * glob → RegExp：支持 `**`（跨目录）、`*`（不跨目录）、`?`。
+ * 不含 `/` 的 glob 只匹配文件名。
+ *
+ * @param {string} glob
+ * @returns {RegExp}
+ */
+function globToRegExp(glob) {
+    let out = '^';
+
+    for (let index = 0; index < glob.length; index += 1) {
+        const char = glob[index];
+        if (char === '*') {
+            if (glob[index + 1] === '*') {
+                out += '.*';
+                index += 1;
+            } else {
+                out += '[^/]*';
+            }
+        } else if (char === '?') {
+            out += '[^/]';
+        } else {
+            out += escapeRegExp(char);
+        }
+    }
+
+    return new RegExp(`${out}$`);
+}
+
+/**
+ * 工作区搜索（ripgrep 风格的单遍扫描）。
+ *
+ * 设计要点：
+ *   - 正则只编译一次，所有文件共用；
+ *   - 行号是增量数的：匹配本来就是按位置递增的，所以整体仍是 O(n)；
+ *   - 有结果上限和超时（默认 2s），大工作区也不会把页面卡死。
+ *
+ * @param {any} fs
+ * @param {string|RegExp} pattern
+ * @param {any} [options]
+ * @returns {any}
+ */
+export function grepWorkspace(fs, pattern, options = {}) {
+    const started = Date.now();
+
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(0, Number(options.timeoutMs)) : 2000;
+    const limit = Number.isFinite(options.maxResults) ? Math.max(1, Math.trunc(options.maxResults)) : 200;
+    const context = Number.isFinite(options.context) ? Math.max(0, Math.trunc(options.context)) : 0;
+
+    const source = options.fixed ? escapeRegExp(String(pattern)) : String(pattern);
+    const flags = ['g', 'm'];
+    if (options.multiline) flags.push('s');
+    if (options.ignoreCase) flags.push('i');
+
+    /** @type {RegExp} */
+    let regex;
+    try {
+        regex = new RegExp(source, flags.join(''));
+    } catch (error) {
+        throw new Error(`正则表达式无效：${error?.message ?? error}`);
+    }
+
+    const root = typeof options.path === 'string' && options.path.trim() ? options.path.trim() : '/';
+    if (!fs.exists(root)) throw new Error(`路径不存在: ${root}`);
+
+    const globText = typeof options.glob === 'string' ? options.glob.trim() : '';
+    const glob = globText ? globToRegExp(globText) : null;
+    const globMatchesPath = globText.includes('/');
+    const candidates = fs.isDir(root) ? fs.files(root) : [root];
+
+    /** @type {any[]} */
+    const matches = [];
+    /** @type {any[]} */
+    const files = [];
+
+    let total = 0;
+    let scanned = 0;
+    let truncated = false;
+    let timedOut = false;
+
+    outer: for (const path of candidates) {
+        if (Date.now() - started >= timeoutMs) {
+            timedOut = true;
+            break;
+        }
+
+        if (glob) {
+            const target = globMatchesPath ? path : path.slice(path.lastIndexOf('/') + 1);
+            if (!glob.test(target)) continue;
+        }
+
+        let text;
+        try {
+            text = fs.read(path);
+        } catch {
+            continue;
+        }
+
+        scanned += 1;
+        let fileCount = 0;
+
+        let counted = 0;
+        let line = 1;
+        let lineStart = 0;
+
+        const locate = (/** @type {number} */ index) => {
+            for (let cursor = counted; cursor < index; cursor += 1) {
+                if (text.charCodeAt(cursor) === 10) {
+                    line += 1;
+                    lineStart = cursor + 1;
+                }
+            }
+            counted = Math.max(counted, index);
+            return { line, column: index - lineStart + 1 };
+        };
+
+        regex.lastIndex = 0;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            if (match[0] === '') {
+                regex.lastIndex += 1;
+                if (regex.lastIndex > text.length) break;
+                continue;
+            }
+
+            fileCount += 1;
+            total += 1;
+
+            if (options.count || options.filesOnly) {
+                if (options.filesOnly) break;
+                continue;
+            }
+
+            const at = locate(match.index);
+            const lineEnd = text.indexOf('\n', match.index + match[0].length);
+            const lineText = text
+                .slice(lineStart, lineEnd === -1 ? text.length : lineEnd)
+                .replace(/\r$/, '');
+
+            /** @type {Record<string, any>} */
+            const hit = {
+                path,
+                line: at.line,
+                column: at.column,
+                text: clipLine(options.multiline ? match[0] : lineText),
+            };
+
+            if (context > 0) {
+                hit.before = contextLines(text, lineStart, -context);
+                hit.after = contextLines(text, lineEnd === -1 ? text.length : lineEnd, context);
+            }
+
+            matches.push(hit);
+
+            if (matches.length >= limit) {
+                truncated = true;
+                break outer;
+            }
+        }
+
+        if (fileCount > 0) {
+            files.push(options.filesOnly ? path : { path, count: fileCount });
+        }
+    }
+
+    const result = {
+        total,
+        truncated,
+        timedOut,
+        scanned,
+        durationMs: Date.now() - started,
+    };
+
+    if (options.filesOnly) return { ...result, files };
+    if (options.count) return { ...result, files };
+    return { ...result, matches };
+}
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+function clipLine(text) {
+    const single = text.length > 300 ? `${text.slice(0, 300)}…` : text;
+    return single;
+}
+
+/**
+ * 取匹配行前/后的若干行。
+ * @param {string} text
+ * @param {number} from 行边界
+ * @param {number} count 负数往前，正数往后
+ * @returns {string[]}
+ */
+function contextLines(text, from, count) {
+    /** @type {string[]} */
+    const lines = [];
+
+    if (count < 0) {
+        let end = from > 0 ? from - 1 : -1;
+        for (let index = 0; index < -count && end > 0; index += 1) {
+            const start = text.lastIndexOf('\n', end - 1) + 1;
+            lines.unshift(text.slice(start, end).replace(/\r$/, ''));
+            end = start - 1;
+        }
+        return lines;
+    }
+
+    let start = from + 1;
+    for (let index = 0; index < count && start < text.length; index += 1) {
+        const end = text.indexOf('\n', start);
+        lines.push(text.slice(start, end === -1 ? text.length : end).replace(/\r$/, ''));
+        if (end === -1) break;
+        start = end + 1;
+    }
+    return lines;
+}
+
+/**
+ * @param {string[]} logs
+ * @returns {Record<string, Function>}

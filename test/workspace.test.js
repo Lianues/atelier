@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Atelier, META_KEY, BOOK_ROOT, HISTORY_DIR } from '../lib/workspace.js';
 import { createToolHandlers } from '../lib/tools.js';
+import { parseGrepArgs } from '../lib/grep.js';
 import { parseYaml } from '../lib/yaml.js';
 
 /**
@@ -327,4 +328,96 @@ test('edit：hunks 里第几个出错要说清楚', async () => {
         }),
         /第 2 个 hunk：在 \/n\.txt 中找不到 oldContent/,
     );
+});
+
+test('grep 工具：返回 ripgrep 风格文本', async () => {
+    const ws = new Atelier(makeContext('chat-A', {}, {}), { storage: null });
+    await ws.ensure();
+    const tools = createToolHandlers(ws);
+
+    await tools.write({ path: '/a/one.md', content: 'line1\nfoo bar\nline3\n' });
+    await tools.write({ path: '/a/two.yaml', content: 'name: foo\n' });
+
+    const text = await tools.grep({ args: 'foo' });
+    assert.match(text, /\/a\/one\.md:2:1: foo bar/);
+    assert.match(text, /\/a\/two\.yaml:1:7: name: foo/);
+    assert.match(text, /2 条命中 · 扫描 \d+ 个文件/);
+});
+
+test('grep 工具：glob / count / filesOnly / context / 无命中 / 空 pattern', async () => {
+    const ws = new Atelier(makeContext('chat-A', {}, {}), { storage: null });
+    await ws.ensure();
+    const tools = createToolHandlers(ws);
+
+    await tools.write({ path: '/g/a.md', content: 'x\nTARGET\ny\n' });
+    await tools.write({ path: '/g/b.yaml', content: 'TARGET here\n' });
+
+    const globbed = await tools.grep({ args: 'TARGET -g "*.yaml"' });
+    assert.match(globbed, /\/g\/b\.yaml:1:1/);
+    assert.doesNotMatch(globbed, /a\.md/);
+
+    const counted = await tools.grep({ args: 'TARGET -c' });
+    assert.match(counted, /\/g\/a\.md: 1/);
+    assert.match(counted, /\/g\/b\.yaml: 1/);
+
+    const only = await tools.grep({ args: 'TARGET -l' });
+    assert.match(only, /^\/g\/a\.md$/m);
+
+    const withContext = await tools.grep({ args: 'TARGET -C 1 /g/a.md' });
+    assert.match(withContext, /  - x/);
+    assert.match(withContext, /  - y/);
+
+    const none = await tools.grep({ args: '绝对没有这个' });
+    assert.match(none, /没有匹配（扫描 \d+ 个文件/);
+
+    await assert.rejects(() => tools.grep({ args: '' }), /缺少 pattern/);
+});
+
+test('grep：Unicode 属性 \\p{Script=Han} 自动启用 u 标志', async () => {
+    const ws = new Atelier(makeContext('chat-A', {}, {}), { storage: null });
+    await ws.ensure();
+    const tools = createToolHandlers(ws);
+
+    await tools.write({ path: '/u.md', content: '第一行 千束\nsecond line\n' });
+
+    const text = await tools.grep({ args: '\\p{Script=Han}+' });
+    assert.match(text, /\/u\.md:1:1: 第一行/);
+
+    // 属性名写错要报错，而不是静默搜不到
+    await assert.rejects(() => tools.grep({ args: '\\p{Han}+' }), /Unicode 属性要写成/);
+});
+
+test('grep 工具：多行匹配压成一行输出', async () => {
+    const ws = new Atelier(makeContext('chat-A', {}, {}), { storage: null });
+    await ws.ensure();
+    const tools = createToolHandlers(ws);
+
+    await tools.write({ path: '/m.md', content: 'A\nB\nC\n' });
+
+    const text = await tools.grep({ args: 'A[\\s\\S]*B' });
+    assert.match(text, /\/m\.md:1:1: A⏎B/);
+    assert.equal(text.split('\n').filter(line => line.includes('/m.md:')).length, 1);
+});
+
+test('grep 参数串：引号、短选项、-- 终止符', () => {
+    assert.deepEqual(parseGrepArgs('千束'), { pattern: '千束', options: { path: undefined } });
+    assert.deepEqual(
+        parseGrepArgs('TARGET -i -g "*.yaml" -C 1 /world_book'),
+        { pattern: 'TARGET', options: { ignoreCase: true, glob: '*.yaml', context: 1, path: '/world_book' } },
+    );
+    assert.deepEqual(parseGrepArgs('-F "a.b"'), { pattern: 'a.b', options: { fixed: true, path: undefined } });
+    assert.deepEqual(parseGrepArgs('x -l'), { pattern: 'x', options: { mode: 'files', path: undefined } });
+    assert.deepEqual(parseGrepArgs('x -c -m 5'), { pattern: 'x', options: { mode: 'count', maxResults: 5, path: undefined } });
+    assert.deepEqual(parseGrepArgs('-- -开头'), { pattern: '-开头', options: { path: undefined } });
+    assert.deepEqual(parseGrepArgs("'带 空格'"), { pattern: '带 空格', options: { path: undefined } });
+    assert.deepEqual(parseGrepArgs('x -g*.md'), { pattern: 'x', options: { glob: '*.md', path: undefined } });
+});
+
+test('grep 参数串：报错说清楚', () => {
+    assert.throws(() => parseGrepArgs(''), /缺少 pattern/);
+    assert.throws(() => parseGrepArgs('x -Z'), /不认识的选项 -Z/);
+    assert.throws(() => parseGrepArgs('x -g'), /-g 后面缺少 GLOB/);
+    assert.throws(() => parseGrepArgs('x "未闭合'), /引号没有闭合/);
+    assert.throws(() => parseGrepArgs('x /a /b'), /只支持一个搜索路径/);
+    assert.throws(() => parseGrepArgs('x -C abc'), /需要数字/);
 });

@@ -57,7 +57,7 @@ function wiEntry(uid, comment, content, extra = {}) {
 test('ws 只暴露必要的原语（其余交给 JS 自己写）', () => {
     const ws = makeWorkspace();
     const api = createAtelierApi(ws);
-    assert.deepEqual(Object.keys(api).sort(), ['files', 'move', 'parseYaml', 'read', 'remove', 'write']);
+    assert.deepEqual(Object.keys(api).sort(), ['files', 'grep', 'move', 'parseYaml', 'read', 'remove', 'write']);
 });
 
 test('js：列文件、读文件', async () => {
@@ -269,4 +269,81 @@ test('js：at 是工作区 API', async () => {
 
     assert.equal(await runWorkspaceScript('return at.files().length', ws), '1');
     assert.equal(await runWorkspaceScript('return typeof at.read === "function"', ws), 'true');
+});
+
+test('grep：正则 + 行号列号 + 命中行文本', async () => {
+    const ws = makeWorkspace();
+    await ws.ensure();
+    ws.fs.write('/a/one.md', 'line1\nfoo bar\nline3\n');
+    ws.fs.write('/a/two.md', 'nothing\nfoobar\n');
+
+    const result = JSON.parse(await runWorkspaceScript('return at.grep("foo")', ws));
+
+    assert.equal(result.total, 2);
+    assert.deepEqual(result.matches.map(m => m.path).sort(), ['/a/one.md', '/a/two.md']);
+    assert.deepEqual(result.matches[0], { path: '/a/one.md', line: 2, column: 1, text: 'foo bar' });
+    assert.equal(result.truncated, false);
+    assert.equal(result.timedOut, false);
+});
+
+test('grep：glob 过滤、忽略大小写、字面量模式', async () => {
+    const ws = makeWorkspace();
+    await ws.ensure();
+    ws.fs.write('/wb/book/entries/0_a.yaml', 'name: Kusuha\n');
+    ws.fs.write('/wb/book/entries/0_a.md', 'kusuha 在这里\n');
+
+    const yamlOnly = JSON.parse(await runWorkspaceScript('return at.grep("kusuha", { glob: "*.yaml", ignoreCase: true })', ws));
+    assert.equal(yamlOnly.total, 1);
+    assert.equal(yamlOnly.matches[0].path, '/wb/book/entries/0_a.yaml');
+
+    const globstar = JSON.parse(await runWorkspaceScript('return at.grep("kusuha", { glob: "**/entries/*.md", ignoreCase: true })', ws));
+    assert.equal(globstar.total, 1);
+    assert.equal(globstar.matches[0].path, '/wb/book/entries/0_a.md');
+
+    // 字面量：`.` 不再当通配符
+    ws.fs.write('/lit.txt', 'a.b\naxb\n');
+    const literal = JSON.parse(await runWorkspaceScript('return at.grep("a.b", { fixed: true })', ws));
+    assert.equal(literal.total, 1);
+    assert.equal(literal.matches[0].text, 'a.b');
+});
+
+test('grep：context 带前后行、count 只给每文件计数、filesOnly 只给路径', async () => {
+    const ws = makeWorkspace();
+    await ws.ensure();
+    ws.fs.write('/c.md', 'l1\nl2\nTARGET\nl4\nl5\n');
+
+    const withContext = JSON.parse(await runWorkspaceScript('return at.grep("TARGET", { context: 1 })', ws));
+    assert.deepEqual(withContext.matches[0].before, ['l2']);
+    assert.deepEqual(withContext.matches[0].after, ['l4']);
+
+    const counted = JSON.parse(await runWorkspaceScript('return at.grep("l", { mode: "count" })', ws));
+    assert.equal(counted.files.find(file => file.path === '/c.md')?.count, 4);
+
+    const onlyFiles = JSON.parse(await runWorkspaceScript('return at.grep("TARGET", { mode: "files" })', ws));
+    assert.deepEqual(onlyFiles.files, ['/c.md']);
+});
+
+test('grep：maxResults 截断、路径过滤、timeoutMs', async () => {
+    const ws = makeWorkspace();
+    await ws.ensure();
+    ws.fs.write('/many.txt', Array.from({ length: 20 }, () => 'hit').join('\n'));
+
+    const limited = JSON.parse(await runWorkspaceScript('return at.grep("hit", { maxResults: 5 })', ws));
+    assert.equal(limited.matches.length, 5);
+    assert.equal(limited.total, 5);
+    assert.equal(limited.truncated, true);
+
+    const missing = await runWorkspaceScript('return at.grep("hit", { path: "/nope" })', ws).catch(error => error.message);
+    assert.match(missing, /路径不存在/);
+
+    const timed = JSON.parse(await runWorkspaceScript('return at.grep("hit", { timeoutMs: 0, maxResults: 1000 })', ws));
+    assert.equal(timed.timedOut, true);
+});
+
+test('grep：无效正则给出可读报错', async () => {
+    const ws = makeWorkspace();
+    await ws.ensure();
+
+    const error = await runWorkspaceScript('return at.grep("[unclosed")', ws).catch(e => e.message);
+    assert.match(error, /正则表达式无效/);
 });
