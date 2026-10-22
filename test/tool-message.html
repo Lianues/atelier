@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <title>工具消息删除按钮 — 离线验证</title>
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 24px;
+            background: #14161b;
+            color: #dfe3e8;
+            font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+            font-size: 14px;
+        }
+
+        #chat {
+            max-width: 760px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        .mes {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .mes.smallSysMes {
+            padding: 5px;
+            text-align: center;
+        }
+
+        .mes .mes_block {
+            flex: 1 1 auto;
+        }
+
+        .mes .mes_buttons {
+            display: flex;
+            gap: 6px;
+            margin-left: auto;
+        }
+
+        .mes .mes_button {
+            width: 22px;
+            height: 22px;
+            display: grid;
+            place-items: center;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        /* 复刻酒馆的关键规则：smallSysMes 的 .ch_name 整行隐藏 */
+        .mes.smallSysMes:not(:has(.edit_textarea)) .ch_name {
+            display: none;
+        }
+
+        .note {
+            margin: 16px 0;
+            opacity: 0.7;
+            line-height: 1.7;
+        }
+
+        .result {
+            font-family: ui-monospace, Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h3>工具消息删除按钮 · 离线验证</h3>
+    <p class="note">
+        复刻酒馆的真实结构：<code>.mes.smallSysMes.toolCall</code>，且 <code>.ch_name</code> 被
+        <code>display:none</code>。删除按钮必须挂在 <code>.mes</code> 上才看得见。
+    </p>
+
+    <div id="chat">
+        <!-- 正常工具消息：点删除应当调用 deleteMessage 并移除 -->
+        <div class="mes toolCall smallSysMes" mesid="4" is_system="true">
+            <div class="ch_name">
+                <span class="name_text">SillyTavern System</span>
+                <div class="mes_buttons">
+                    <div class="mes_button mes_copy fa-solid fa-copy" title="复制"></div>
+                    <div class="mes_button mes_edit fa-solid fa-pencil" title="编辑"></div>
+                </div>
+            </div>
+            <div class="mes_block">Tool calls: Write workspace file</div>
+        </div>
+
+        <!-- 生成中的工具消息：点删除应当被拦下 -->
+        <div class="mes toolCall smallSysMes" mesid="6" is_system="true">
+            <div class="ch_name">
+                <span class="name_text">SillyTavern System</span>
+                <div class="mes_buttons"></div>
+            </div>
+            <div class="mes_block">Tool calls: Read workspace file</div>
+        </div>
+
+        <!-- 普通消息：不该有删除按钮 -->
+        <div class="mes" mesid="7" is_system="false">
+            <div class="mes_block">普通回复</div>
+            <div class="mes_buttons">
+                <div class="mes_button mes_copy fa-solid fa-copy" title="复制"></div>
+            </div>
+        </div>
+    </div>
+
+    <pre class="result" id="result">running…</pre>
+
+    <script type="module">
+        import { ToolMessageActions } from '../lib/message-actions.js';
+
+        const calls = [];
+        const toasts = [];
+        const context = {
+            deleteMessage: async (id, swipeIndex, askConfirmation, deleteToolCalls) => {
+                calls.push({ id, askConfirmation, deleteToolCalls });
+                document.querySelector(`.mes[mesid="${id}"]`)?.remove();
+            },
+        };
+
+        window.toastr = {
+            error: (...args) => console.error('[toastr.error]', ...args),
+            info: (...args) => toasts.push(args[0]),
+        };
+
+        const actions = new ToolMessageActions(context);
+        actions.install();
+
+        const toolMessage = document.querySelector('.mes[mesid="4"]');
+        const busyMessage = document.querySelector('.mes[mesid="6"]');
+        const plainMessage = document.querySelector('.mes[mesid="7"]');
+        const button = toolMessage.querySelector(':scope > .at-tool-delete');
+
+        const visible = element => element instanceof HTMLElement && element.offsetParent !== null;
+        const checks = [];
+
+        checks.push(['工具消息有删除按钮', Boolean(button)]);
+        checks.push(['按钮是 .mes 的直接子元素', button?.parentElement === toolMessage]);
+        checks.push(['按钮不在 .ch_name 里（那里被隐藏）', !button?.closest('.ch_name')]);
+        checks.push(['.ch_name 确实不可见', !visible(toolMessage.querySelector('.ch_name'))]);
+        checks.push(['按钮本身可见', visible(button)]);
+        checks.push(['普通消息没有删除按钮', !plainMessage.querySelector('.at-tool-delete')]);
+
+        // 正常删除
+        button?.click();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        checks.push(['点击调用了 deleteMessage', calls.length === 1]);
+        checks.push(['askConfirmation=true', calls[0]?.askConfirmation === true]);
+        checks.push(['deleteToolCalls=false', calls[0]?.deleteToolCalls === false]);
+        checks.push(['消息节点被移除', document.querySelector('.mes[mesid="4"]') === null]);
+
+        // 生成中：应被拦下
+        document.body.dataset.generating = 'true';
+        busyMessage.querySelector('.at-tool-delete')?.click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+        checks.push(['生成中不删除', calls.length === 1]);
+        checks.push(['生成中给出提示', toasts.length === 1]);
+        document.body.dataset.generating = 'false';
+
+        const text = checks.map(([name, ok]) => `${ok ? '✔' : '✘'} ${name}`).join('\n');
+        document.getElementById('result').textContent = text;
+        window.__result = { checks, calls, toasts, pass: checks.every(([, ok]) => ok) };
+        console.log('[tool-message] result', window.__result);
+    </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <title>Atelier — 离线 UI 预览</title>
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+        /* 近似酒馆的全局样式，仅用于离线验证布局 */
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #14161b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%2314161b'/%3E%3Ccircle cx='20' cy='20' r='1' fill='%23202430'/%3E%3C/svg%3E");
+            color: #dfe3e8;
+            font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        .menu_button {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: inherit;
+            padding: 3px 9px;
+            font: inherit;
+        }
+
+        .menu_button:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .demo-note {
+            max-width: 720px;
+            margin: 24px auto;
+            padding: 16px 20px;
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            line-height: 1.7;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-note">
+        离线预览：用假的 getContext / 世界书数据驱动 <code>lib/ui.js</code>，
+        验证目录树、编辑器、工具栏布局。真实酒馆里 <code>toastr</code> / <code>Popup</code> / 世界书读写都是真的。
+        <br />
+        离线环境没有酒馆的 <code>/lib.js</code>，所以 YAML 用 JSON 代替（只影响预览里的文件长相，不影响布局）。
+        <br />
+        <label style="margin-top:8px;display:inline-flex;gap:6px;align-items:center;">
+            <input id="openai_function_calling" type="checkbox" />
+            模拟酒馆的「启用函数调用」开关（取消勾选可看告警条）
+        </label>
+    </div>
+
+    <script type="module">
+        import { Atelier } from '../lib/workspace.js';
+        import { WorkspaceUI } from '../lib/ui.js';
+        import { setYamlImplementation } from '../lib/yaml.js';
+
+        // 预览环境没有酒馆的 yaml，用 JSON 顶上；真实环境是 index.js 注入 ST 的 yaml
+        setYamlImplementation({
+            parse: text => JSON.parse(String(text || '{}')),
+            stringify: value => `${JSON.stringify(value, null, 2)}\n`,
+        });
+
+        const params = new URLSearchParams(location.search);
+        let functionCalling = params.get('tools') !== 'off';
+        let ui = null;
+
+        const wiEntry = (uid, comment, content, extra = {}) => ({
+            uid,
+            key: ['关键词'],
+            keysecondary: [],
+            comment,
+            content,
+            constant: false,
+            vectorized: false,
+            selective: true,
+            selectiveLogic: 0,
+            order: 100,
+            position: 0,
+            disable: false,
+            excludeRecursion: false,
+            preventRecursion: false,
+            probability: 100,
+            depth: 4,
+            role: 0,
+            ...extra,
+        });
+
+        const books = {
+            '莉可丽丝 - Lycoris Recoil': {
+                0: wiEntry(0, 'LycoReco具体资料', '地理位置:\n  区域: 东京东边，墨田区锦糸町\n  具体: 锦糸町车站北口\n', { order: 17, excludeRecursion: true, preventRecursion: true }),
+                2: wiEntry(2, '锦木千束 - 档案', '姓名: 锦木千束\n年龄: 17\n', { constant: true }),
+                3: wiEntry(3, '井之上泷奈 - 档案', '姓名: 井之上泷奈\n', { position: 4, depth: 6, role: 2 }),
+            },
+            '测试书': {
+                1: wiEntry(1, '测试条目', '正文', { vectorized: true }),
+            },
+        };
+
+        const metadata = {};
+        const context = {
+            chatMetadata: metadata,
+            chatId: 'demo-chat-2024',
+            getCurrentChatId: () => 'demo-chat-2024',
+            saveMetadataDebounced: () => { },
+            saveSettingsDebounced: () => { },
+            extensionSettings: { 'atelier': {} },
+            characters: [],
+            characterId: 0,
+            powerUserSettings: { world_info: { globalSelect: Object.keys(books) } },
+            mainApi: 'openai',
+            getChatCompletionModel: () => 'deepseek-chat',
+            chatCompletionSettings: {
+                get function_calling() {
+                    return functionCalling;
+                },
+                custom_prompt_post_processing: 'strict_tools',
+            },
+            getWorldInfoNames: () => Object.keys(books),
+            loadWorldInfo: async name => (books[name] ? { entries: structuredClone(books[name]) } : null),
+            saveWorldInfo: async () => { },
+            isToolCallingSupported: () => functionCalling,
+            Popup: { show: { confirm: async () => 1, input: async () => '/chat_history/2024-01-01.md' } },
+            POPUP_RESULT: { AFFIRMATIVE: 1 },
+            chat: [],
+        };
+
+        window.toastr = {
+            info: (...args) => console.log('[toastr.info]', ...args),
+            success: (...args) => console.log('[toastr.success]', ...args),
+            warning: (...args) => console.warn('[toastr.warning]', ...args),
+            error: (...args) => console.error('[toastr.error]', ...args),
+        };
+
+        const workspace = new Atelier(context, { storage: null });
+        await workspace.ensure();
+        await workspace.importBook('莉可丽丝 - Lycoris Recoil');
+        await workspace.importBook('测试书');
+
+        const toggle = document.getElementById('openai_function_calling');
+        toggle.checked = functionCalling;
+        toggle.addEventListener('input', () => {
+            functionCalling = toggle.checked;
+            void ui?.refresh();
+        });
+
+        ui = new WorkspaceUI(context, workspace);
+        window.__ui = ui;
+        await ui.open();
+        ui.loadFile('/world_book/莉可丽丝 - Lycoris Recoil/entries/3_井之上泷奈 - 档案.yaml');
+        console.log('[harness] ready', workspace.stats());
+    </script>
+</body>
+</html>

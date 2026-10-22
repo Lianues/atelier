@@ -1,0 +1,1017 @@
+/* Atelier —— 浮动工作区面板 */
+
+.at-panel {
+    position: fixed;
+    top: 96px;
+    right: 24px;
+    width: 620px;
+    height: 460px;
+    min-width: 320px;
+    min-height: 280px;
+    display: none;
+    flex-direction: column;
+    /* 内容比面板高时整体上下滚动（树/编辑器各自还会独立滚动） */
+    overflow-y: auto;
+    overflow-x: hidden;
+    resize: both;
+    /* 低于酒馆的设置抽屉（3000+），避免挡住设置面板 */
+    z-index: 2990;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.18));
+    border-radius: 10px;
+    background: var(--SmartThemeBlurTintColor, rgba(22, 22, 26, 0.94));
+    color: var(--SmartThemeBodyColor, #e8e8ea);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(12px);
+    font-family: var(--mainFontFamily, system-ui, sans-serif);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.at-panel.open {
+    display: flex;
+}
+
+.at-panel.at-dragging {
+    user-select: none;
+}
+
+.at-panel.at-busy {
+    opacity: 0.75;
+    pointer-events: none;
+}
+
+/* --- 头部 --------------------------------------------------------------- */
+
+.at-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 6px 12px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.12));
+    cursor: move;
+    flex: 0 0 auto;
+    /* 面板内滚动时标题栏（含关闭/拖拽）固定住 */
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--SmartThemeBlurTintColor, rgba(22, 22, 26, 0.94));
+    backdrop-filter: blur(12px);
+    border-radius: 10px 10px 0 0;
+}
+
+.at-title {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.at-scope {
+    flex: 1 1 auto;
+    color: var(--SmartThemeEmColor, #9aa0a6);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-icon-btn {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.at-icon-btn:hover {
+    background: var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.15));
+}
+
+/* --- 工具栏 ------------------------------------------------------------- */
+
+.at-toolbar,
+.at-filebar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+
+.at-panel .at-btn {
+    /* 按钮不参与收缩：宽度不够时整行换行，而不是把中文挤成一列 */
+    flex: 0 0 auto;
+    white-space: nowrap;
+    word-break: keep-all;
+    writing-mode: horizontal-tb;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    height: auto;
+    min-height: 0;
+}
+
+.at-spacer {
+    flex: 1 1 auto;
+}
+
+/* 自动同步开关 */
+.at-auto-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 2px;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: nowrap;
+    opacity: 0.9;
+    cursor: pointer;
+    user-select: none;
+}
+
+.at-auto-sync:hover {
+    opacity: 1;
+}
+
+.at-auto-sync input {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--SmartThemeQuoteColor, #6ea8fe);
+}
+
+.at-panel .at-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* --- 警告条 ------------------------------------------------------------- */
+
+.at-alert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(240, 180, 41, 0.35);
+    background: rgba(240, 180, 41, 0.12);
+    color: #f0b429;
+    font-size: 12px;
+    line-height: 1.4;
+    flex: 0 0 auto;
+}
+
+.at-alert[hidden] {
+    display: none;
+}
+
+.at-alert-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.at-alert .at-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+/* --- 主体 --------------------------------------------------------------- */
+
+.at-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    /* 面板被压矮时不至于把树和编辑器挤没，交给外层滚动 */
+    min-height: 220px;
+}
+
+.at-tree {
+    width: 250px;
+    /* 面板被拖窄时让树让位，而不是把编辑器挤没 */
+    flex: 0 1 250px;
+    min-width: 140px;
+    overflow: auto;
+    padding: 4px 0;
+    border-right: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    user-select: none;
+}
+
+.at-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px 2px 0;
+    cursor: pointer;
+    white-space: nowrap;
+    border-left: 2px solid transparent;
+}
+
+.at-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.at-row.active {
+    background: rgba(255, 255, 255, 0.12);
+    border-left-color: var(--SmartThemeQuoteColor, #6ea8fe);
+}
+
+.at-caret {
+    width: 12px;
+    flex: 0 0 12px;
+    text-align: center;
+    opacity: 0.7;
+    font-size: 10px;
+}
+
+.at-icon {
+    width: 16px;
+    flex: 0 0 16px;
+    text-align: center;
+    font-size: 11px;
+}
+
+.at-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-meta {
+    margin-left: auto;
+    font-size: 10px;
+    opacity: 0.5;
+    padding-left: 8px;
+}
+
+.at-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.at-path {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--SmartThemeEmColor, #9aa0a6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-dirty {
+    font-size: 11px;
+    color: var(--SmartThemeQuoteColor, #f0b429);
+    flex: 0 0 auto;
+}
+
+.at-editor {
+    flex: 1 1 auto;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 0;
+    resize: none;
+    border: none;
+    outline: none;
+    padding: 10px 12px;
+    background: transparent;
+    color: inherit;
+    font-family: var(--monoFontFamily, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 4;
+}
+
+.at-editor:disabled {
+    opacity: 0.5;
+}
+
+/* --- 底部 --------------------------------------------------------------- */
+
+.at-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    border-top: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    font-size: 11px;
+    opacity: 0.85;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.at-footer [data-role="stats"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-chip {
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2));
+}
+
+.at-chip-warn {
+    color: #f0b429;
+    border-color: #f0b429;
+}
+
+.at-empty {
+    padding: 16px;
+    opacity: 0.6;
+    text-align: center;
+}
+
+/* 工具调用消息上的删除按钮。
+   ST 的 .mes.smallSysMes 会把 .ch_name 整行隐藏，而按钮行 .mes_buttons 就在里面，
+   所以按钮必须挂在 .mes 上、自己定位。 */
+.mes.toolCall {
+    position: relative;
+}
+
+.mes.toolCall .mes_block {
+    padding-right: 26px;
+}
+
+.at-tool-delete {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.4;
+    cursor: pointer;
+    z-index: 4;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.mes.toolCall:hover .at-tool-delete {
+    opacity: 1;
+}
+
+.at-tool-delete:hover {
+    color: #e06c75;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* 想让工具消息恢复酒馆原生按钮行（复制 / 编辑 / 书签），取消下面这行注释：
+.mes.toolCall .ch_name { display: flex !important; }
+*/
+
+/* 工具调用链折叠 */
+.mes.at-chain-collapsed {
+    display: none !important;
+}
+
+.at-chain-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0 6px;
+    padding: 2px 9px;
+    border: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.25));
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1.6;
+    opacity: 0.65;
+    cursor: pointer;
+    user-select: none;
+    width: fit-content;
+    transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.at-chain-chip:hover {
+    opacity: 1;
+    border-color: var(--SmartThemeQuoteColor, #6ea8fe);
+}
+
+.at-chain-chip.is-expanded {
+    opacity: 0.85;
+}
+
+.at-chain-icon {
+    font-size: 9px;
+    opacity: 0.8;
+}
+
+/* 小屏：贴边铺开 */
+@media (max-width: 760px) {
+    .at-panel {
+        left: 8px !important;
+        right: 8px !important;
+        top: 64px !important;
+        width: auto !important;
+        height: 58vh !important;
+    }
+
+    .at-tree {
+        width: 150px;
+        flex-basis: 150px;
+    }
+}
+
+
+/* --- 压缩标记块（聊天里的折叠摘要） ------------------------------------- */
+
+.at-compress {
+    border: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.25));
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 8px auto;
+    max-width: 90%;
+}
+
+.at-compress-note {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-compress-details > summary {
+    cursor: pointer;
+    font-size: 12px;
+    opacity: 0.9;
+    user-select: none;
+}
+
+.at-compress-details > summary:hover {
+    opacity: 1;
+}
+
+.at-compress-body {
+    margin: 6px 0 0;
+    padding: 8px;
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    text-align: left;
+}
+
+.at-compress-h {
+    font-weight: 600;
+    margin: 8px 0 2px;
+    opacity: 0.95;
+}
+
+.at-compress-line {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* --- MCP 服务面板 -------------------------------------------------------- */
+
+.mcp-panel {
+    position: fixed;
+    top: 96px;
+    right: 24px;
+    width: 600px;
+    max-width: calc(100vw - 32px);
+    max-height: 70vh;
+    display: none;
+    flex-direction: column;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.15));
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor, #1b1b22);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    z-index: 3000;
+    font-size: 12px;
+}
+
+.mcp-panel.open {
+    display: flex;
+}
+
+.mcp-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+}
+
+.mcp-title {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.mcp-spacer {
+    flex: 1 1 auto;
+}
+
+.mcp-icon-btn {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.mcp-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.mcp-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    flex-wrap: wrap;
+}
+
+.mcp-input {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.mcp-select {
+    flex: 0 0 auto;
+    width: auto;
+}
+
+.mcp-list {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 4px 12px;
+}
+
+.mcp-empty {
+    padding: 18px 8px;
+    text-align: center;
+    opacity: 0.7;
+}
+
+.mcp-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.08));
+}
+
+.mcp-row:last-child {
+    border-bottom: none;
+}
+
+.mcp-row-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.mcp-row-name {
+    font-size: 13px;
+}
+
+.mcp-row-url {
+    font-size: 11px;
+    opacity: 0.62;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mcp-state {
+    flex: 0 0 auto;
+    font-size: 11px;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.mcp-row[data-state="connected"] .mcp-state {
+    color: #7bd88f;
+}
+
+.mcp-row[data-state="error"] .mcp-state {
+    color: #ff8a8a;
+}
+
+.mcp-row-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 4px;
+}
+
+.mcp-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+}
+
+.mcp-hint {
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+/* MCP：按钮一律横排，不被 flex 压扁 */
+.mcp-panel .menu_button,
+.mcp-panel .mcp-icon-btn,
+.mcp-modal .menu_button,
+.mcp-modal .mcp-icon-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    word-break: keep-all;
+    writing-mode: horizontal-tb;
+}
+
+/* MCP 配置弹窗 */
+.mcp-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 3100;
+}
+
+.mcp-modal.open {
+    display: flex;
+}
+
+.mcp-modal-box {
+    width: 560px;
+    max-width: calc(100vw - 32px);
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.15));
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor, #1b1b22);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    font-size: 12px;
+}
+
+.mcp-modal-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+}
+
+.mcp-modal-title {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.mcp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    overflow: auto;
+}
+
+.mcp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mcp-field > span {
+    opacity: 0.75;
+}
+
+.mcp-headers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mcp-headers-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0.85;
+}
+
+.mcp-headers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mcp-header-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mcp-header-key {
+    flex: 0 1 42%;
+    min-width: 90px;
+}
+
+.mcp-header-value {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.mcp-modal-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+}
+
+.mcp-error {
+    color: #ff8a8a;
+    font-size: 11px;
+}
+
+/* MCP 面板可拖拽 */
+.mcp-header {
+    cursor: move;
+    user-select: none;
+}
+
+.mcp-header button,
+.mcp-header input,
+.mcp-header select {
+    cursor: pointer;
+}
+
+/* 功能抽屉：压缩 / 自我总结 */
+.at-features {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.1));
+    font-size: 12px;
+    flex: 0 0 auto;
+}
+
+.at-features.open {
+    display: flex;
+}
+
+.at-feature-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.at-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    flex: 0 0 auto;
+}
+
+.at-check input {
+    margin: 0;
+    width: 13px;
+    height: 13px;
+    cursor: pointer;
+    accent-color: var(--SmartThemeQuoteColor, #6ea8fe);
+}
+
+.at-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    opacity: 0.85;
+    flex: 0 0 auto;
+}
+
+.at-mini input {
+    width: 64px;
+    min-width: 48px;
+    height: 24px;
+    padding: 0 4px;
+    font-size: 12px;
+}
+
+/* 输入框配色兜底：某些主题下浏览器默认白底 + 继承的浅色文字 = 看不见。
+   勾选框不在此列 —— 原生对勾是深色的，白底才能看清。 */
+.at-features input:not([type="checkbox"]),
+.at-panel input[type="text"],
+.at-panel input[type="number"],
+.at-panel select,
+.mcp-panel input:not([type="checkbox"]),
+.mcp-panel select,
+.mcp-modal input:not([type="checkbox"]),
+.mcp-modal select {
+    background-color: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.35));
+    color: var(--SmartThemeBodyColor, #eaeaea);
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.22));
+    border-radius: 4px;
+}
+
+.at-features input:focus,
+.at-panel input:focus,
+.mcp-panel input:focus,
+.mcp-panel select:focus,
+.mcp-modal input:focus,
+.mcp-modal select:focus {
+    outline: 1px solid var(--SmartThemeQuoteColor, #6ea8fe);
+    outline-offset: 0;
+}
+
+/* 去掉 number 输入右侧浏览器的上下箭头 */
+.at-features input[type="number"],
+.at-panel input[type="number"],
+.mcp-panel input[type="number"],
+.mcp-modal input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.at-features input[type="number"]::-webkit-outer-spin-button,
+.at-features input[type="number"]::-webkit-inner-spin-button,
+.at-panel input[type="number"]::-webkit-outer-spin-button,
+.at-panel input[type="number"]::-webkit-inner-spin-button,
+.mcp-panel input[type="number"]::-webkit-outer-spin-button,
+.mcp-panel input[type="number"]::-webkit-inner-spin-button,
+.mcp-modal input[type="number"]::-webkit-outer-spin-button,
+.mcp-modal input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
+/* 功能抽屉里的「说明」 */
+.at-feature-helpbar {
+    border: none;
+    padding: 0 2px;
+    opacity: 0.9;
+}
+
+.at-help-hint {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.at-help {
+    font-size: 11px;
+    line-height: 1.65;
+    padding: 8px 10px;
+    border: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.18));
+    border-radius: 6px;
+    max-height: 260px;
+    overflow: auto;
+    white-space: normal;
+}
+
+.at-help[hidden] {
+    display: none;
+}
+
+.at-help p {
+    margin: 0 0 6px;
+}
+
+.at-help-title {
+    font-weight: 600;
+    font-size: 12px;
+    margin-top: 10px;
+    opacity: 0.95;
+}
+
+.at-help-title:first-child {
+    margin-top: 0;
+}
+
+.at-help ul {
+    margin: 0 0 8px;
+    padding-left: 18px;
+}
+
+.at-help li {
+    margin-bottom: 4px;
+}
+
+.at-help code {
+    font-size: 10px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+/* 压缩摘要块的删除按钮 */
+.at-compress {
+    position: relative;
+}
+
+.at-compress-remove {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    padding: 2px 5px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.55;
+    z-index: 2;
+}
+
+.at-compress-remove:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* 自我总结提示块 */
+.at-review {
+    position: relative;
+    border: 1px dashed var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.25));
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 8px auto;
+    max-width: 90%;
+}
+
+.at-review-note {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-bottom: 4px;
+    padding-right: 24px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.at-review-details > summary {
+    cursor: pointer;
+    font-size: 12px;
+    opacity: 0.9;
+    user-select: none;
+}
+
+.at-review-details > summary:hover {
+    opacity: 1;
+}
+
+.at-review-body {
+    margin-top: 6px;
+    padding: 8px;
+    max-height: 240px;
+    overflow: auto;
+    font-size: 12px;
+    line-height: 1.55;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    text-align: left;
+}
+
+.at-review-item {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 3px;
+}
+
+.at-review-remove {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    padding: 2px 5px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.55;
+    z-index: 2;
+}
+
+.at-review-remove:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.14);
+}

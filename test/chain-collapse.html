@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <title>工具链折叠 — 离线验证</title>
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 24px;
+            background: #14161b;
+            color: #dfe3e8;
+            font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+            font-size: 14px;
+        }
+
+        #chat {
+            max-width: 760px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        .mes {
+            padding: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .mes .ch_name {
+            font-size: 12px;
+            opacity: 0.6;
+        }
+
+        .mes.smallSysMes {
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .note {
+            margin: 16px 0;
+            opacity: 0.7;
+            line-height: 1.7;
+        }
+
+        .result {
+            font-family: ui-monospace, Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h3>工具链折叠 · 离线验证</h3>
+    <p class="note">
+        模拟一次「两次工具调用 + 最终回答」的聊天，验证中间消息被折叠、最终消息上有胶囊按钮、点击能展开收起。
+    </p>
+
+    <div id="chat"></div>
+    <pre class="result" id="result">running…</pre>
+
+    <script type="module">
+        import { ToolChainCollapse } from '../lib/chain-collapse.js';
+
+        const toolMessage = text => ({
+            is_user: false,
+            is_system: true,
+            mes: text,
+            extra: { tool_invocations: [{ id: 'c1', name: 'read' }] },
+        });
+
+        const chat = [
+            { is_user: true, mes: '演示一下' },
+            { is_user: false, mes: '我先看看工作区里有什么。' },
+            toolMessage('Tool calls: Read workspace file'),
+            { is_user: false, mes: '再读一个目录。' },
+            toolMessage('Tool calls: Read workspace file'),
+            { is_user: false, mes: '读完了，工作区里只有两本空目录。' },
+        ];
+
+        const chatElement = document.getElementById('chat');
+        chat.forEach((message, index) => {
+            const element = document.createElement('div');
+            element.className = `mes${message.is_system ? ' smallSysMes toolCall' : ''}`;
+            element.setAttribute('mesid', String(index));
+            element.innerHTML = `<div class="mes_block"><div class="ch_name">name</div><div class="mes_text"></div></div>`;
+            element.querySelector('.mes_text').textContent = message.mes;
+            chatElement.append(element);
+        });
+
+        const context = {
+            chat,
+            getCurrentChatId: () => 'demo-chat',
+            eventSource: { on: () => { }, removeListener: () => { } },
+            eventTypes: {},
+        };
+
+        const collapse = new ToolChainCollapse(context);
+        collapse.install();
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        await wait(200);
+
+        const isHidden = mesid => {
+            const element = document.querySelector(`.mes[mesid="${mesid}"]`);
+            return element?.classList.contains('at-chain-collapsed') === true;
+        };
+
+        const chip = () => document.querySelector('.at-chain-chip');
+        const checks = [];
+        const check = (name, ok) => checks.push([name, Boolean(ok)]);
+
+        check('中间消息 1 被折叠', isHidden(1));
+        check('工具消息 2 被折叠', isHidden(2));
+        check('中间消息 3 被折叠', isHidden(3));
+        check('最终回答 5 不折叠', !isHidden(5));
+        check('最终回答里有胶囊按钮', Boolean(chip()));
+        check('按钮文案含 4 条中间消息', chip()?.textContent.includes('4 条中间消息'));
+        check('按钮文案含 2 次工具调用', chip()?.textContent.includes('2 次工具调用'));
+
+        chip()?.click();
+        await wait(20);
+        check('点击后展开：消息 1 可见', !isHidden(1));
+        check('点击后展开：消息 3 可见', !isHidden(3));
+        check('展开后按钮文案变成"收起"', chip()?.textContent.includes('收起'));
+
+        chip()?.click();
+        await wait(20);
+        check('再点一次重新折叠', isHidden(2));
+        check('按钮回到"已折叠"', chip()?.textContent.includes('已折叠'));
+
+        // 第二轮对话：旧的胶囊应该被清掉，新的挂在新的最终消息上
+        chat.push({ is_user: true, mes: '再来一次' });
+        chat.push({ is_user: false, mes: '好的' });
+        chat.push(toolMessage('Tool calls: Write workspace file'));
+        chat.push({ is_user: false, mes: '写完了。' });
+
+        const addMesh = (message, index) => {
+            const element = document.createElement('div');
+            element.className = `mes${message.is_system ? ' smallSysMes toolCall' : ''}`;
+            element.setAttribute('mesid', String(index));
+            element.innerHTML = `<div class="mes_block"><div class="ch_name">name</div><div class="mes_text"></div></div>`;
+            element.querySelector('.mes_text').textContent = message.mes;
+            chatElement.append(element);
+        };
+        addMesh(chat[6], 6);
+        addMesh(chat[7], 7);
+        addMesh(chat[8], 8);
+        addMesh(chat[9], 9);
+        await wait(300);
+
+        check('新链：消息 7 被折叠', isHidden(7));
+        check('新链：消息 8 被折叠', isHidden(8));
+        check('新链：最终消息 9 可见', !isHidden(9));
+        check('两条链各有一个胶囊', document.querySelectorAll('.at-chain-chip').length === 2);
+        check('新胶囊挂在新最终消息上', [...document.querySelectorAll('.at-chain-chip')]
+            .some(item => item.closest('.mes')?.getAttribute('mesid') === '9'));
+        check('旧链仍然折叠', isHidden(1) && isHidden(3));
+        check('两个最终消息都可见', !isHidden(5) && !isHidden(9));
+
+        const text = checks.map(([name, ok]) => `${ok ? '✔' : '✘'} ${name}`).join('\n');
+        document.getElementById('result').textContent = text;
+        window.__result = { checks, pass: checks.every(([, ok]) => ok) };
+        console.log('[chain-collapse] result', window.__result);
+    </script>
+</body>
+</html>
