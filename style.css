@@ -50,6 +50,8 @@
     border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.12));
     cursor: move;
     flex: 0 0 auto;
+    /* 触屏拖拽：不让浏览器把手势当成滚动/缩放，否则 pointermove 会被 pointercancel 打断 */
+    touch-action: none;
     /* 面板内滚动时标题栏（含关闭/拖拽）固定住 */
     position: sticky;
     top: 0;
@@ -406,16 +408,8 @@
     opacity: 0.8;
 }
 
-/* 小屏：贴边铺开 */
+/* 小屏：树窄一点，位置交给 JS 收进视口（CSS 里写死 !important 会让拖拽失效） */
 @media (max-width: 760px) {
-    .at-panel {
-        left: 8px !important;
-        right: 8px !important;
-        top: 64px !important;
-        width: auto !important;
-        height: 58vh !important;
-    }
-
     .at-tree {
         width: 150px;
         flex-basis: 150px;
@@ -749,6 +743,7 @@
 .mcp-header {
     cursor: move;
     user-select: none;
+    touch-action: none;
 }
 
 .mcp-header button,
@@ -1014,4 +1009,34 @@
 .at-review-remove:hover {
     opacity: 1;
     background: rgba(255, 255, 255, 0.14);
+}
+
+/* --- 手机竖屏：MCP 面板与配置弹窗 --------------------------------------- */
+
+@media (max-width: 760px) {
+    /* 面板：位置由 JS 收进视口，这里只限制高度，避免盖住整个屏幕 */
+    .mcp-panel {
+        max-height: 64vh;
+        max-height: 64dvh;
+        border-radius: 8px;
+    }
+
+    /* 配置弹窗改成底部抽屉：软键盘弹起时顶部不会被裁掉 */
+    .mcp-modal {
+        align-items: flex-end;
+    }
+
+    .mcp-modal-box {
+        width: 100%;
+        max-width: 100%;
+        max-height: 82vh;
+        max-height: 82dvh;
+        border-radius: 12px 12px 0 0;
+        border-bottom: none;
+    }
+
+    .at-panel {
+        max-width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+    }
 }
